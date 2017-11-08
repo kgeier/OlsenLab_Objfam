@@ -1,0 +1,419 @@
+library("broom", lib.loc="~/R/R-3.3.1/library")
+library("tidyr", lib.loc="~/R/R-3.3.1/library")
+library("ggplot2", lib.loc="~/R/R-3.3.1/library")
+library("gridExtra", lib.loc="~/R/R-3.3.1/library")
+library("dplyr", lib.loc="~/R/R-3.3.1/library")
+library("tidyr", lib.loc="~/R/R-3.3.2/library")
+library("plotly", lib.loc="~/R/R-3.3.2/library")
+
+#https://github.com/kgeier/Object-Familiarity-Study-fMRI-and-EyeTracking-.git
+#Copy of Objfam Analysis to make edits and to add to github (June 13/2017)
+#Actually. Not going to commit or make changes until Steph approves. So this will be back up copy. And edits will be made to other version.
+
+
+
+#Summary function from Steph to calculate SE 
+summarySEwithin <- function(data=NULL, measurevar, betweenvars=NULL, withinvars=NULL,
+                            idvar=NULL, na.rm=FALSE, conf.interval=.95, .drop=TRUE) {
+  
+  # Ensure that the betweenvars and withinvars are factors
+  factorvars <- vapply(data[, c(betweenvars, withinvars), drop=FALSE],
+                       FUN=is.factor, FUN.VALUE=logical(1))
+  
+  if (!all(factorvars)) {
+    nonfactorvars <- names(factorvars)[!factorvars]
+    message("Automatically converting the following non-factors to factors: ",
+            paste(nonfactorvars, collapse = ", "))
+    data[nonfactorvars] <- lapply(data[nonfactorvars], factor) }
+  # Get the means from the un-normed data
+  datac <- summarySE(data, measurevar, groupvars=c(betweenvars, withinvars),
+                     na.rm=na.rm, conf.interval=conf.interval, .drop=.drop)
+  
+  # Drop all the unused columns (these will be calculated with normed data)
+  datac$sd <- NULL
+  datac$se <- NULL
+  datac$ci <- NULL
+  
+  # Norm each subject's data
+  ndata <- normDataWithin(data, idvar, measurevar, betweenvars, na.rm, .drop=.drop)
+  
+  # This is the name of the new column
+  measurevar_n <- paste(measurevar, "_norm", sep="")
+  
+  # Collapse the normed data - now we can treat between and within vars the same
+  ndatac <- summarySE(ndata, measurevar_n, groupvars=c(betweenvars, withinvars),
+                      na.rm=na.rm, conf.interval=conf.interval, .drop=.drop)
+  
+  # Apply correction from Morey (2008) to the standard error and confidence interval
+  #  Get the product of the number of conditions of within-S variables
+  nWithinGroups    <- prod(vapply(ndatac[,withinvars, drop=FALSE], FUN=nlevels,
+                                  FUN.VALUE=numeric(1)))
+  correctionFactor <- sqrt( nWithinGroups / (nWithinGroups-1) )
+  
+  # Apply the correction factor
+  ndatac$sd <- ndatac$sd * correctionFactor
+  ndatac$se <- ndatac$se * correctionFactor
+  ndatac$ci <- ndatac$ci * correctionFactor
+  
+  # Combine the un-normed means with the normed results
+  merge(datac, ndatac)
+}
+
+
+#GOALS:
+#1. Histograms of d prime to see if these subjects have performed well enough on the task
+#2. Graph for Confidence by Morph. Both averaged and facited to see if individual subjects are behaving as expected
+#3. Graph of Count of All 1,2,3,4,5 for each morph. Again both average and faceted. 
+
+#import csv file
+df_wide1 <- read.csv("C:/Users/kgeier/Google Drive/OlsenLab_cloud/All Experiments/EyeTracking/ObjFamETStudy/DataFrameforR_objfam37csv.csv")
+#convert subject ID to a factor. $ seems to select column
+df_wide1$SID <- factor(df_wide1$Subject.Number)
+
+#making a long format df by computing means of...
+#summary_by_subj1 <- df_wide1 %>% group_by(Subject.Number, repnum )
+
+
+###- Step 1: histograms of d prime based on generous or strict generation of dprimes. Genorous doesn't count 3's and "noresponses" as incorrect. It also only compares Old to Far, no Near.  
+p3 <- ggplot(df_wide1, aes(x=d.)) +
+  geom_histogram(binwidth=.23, aes(fill=..x..)) +
+  geom_vline(aes(xintercept=mean(d.,na.rm=T)),
+             linetype="dashed",size=.4) +
+  theme_classic() +
+  scale_fill_gradient(name="d prime",low="purple", high = "darkorange", guide = FALSE) +
+  theme(axis.line.x = element_line(color = "black"), 
+        axis.line.y = element_line(color = "black")) +
+  theme(plot.title = element_text(size=36),
+        axis.text = element_text(size=24), 
+        axis.title = element_text(size=32),
+        strip.text.x = element_text(size=16)) +
+  scale_y_continuous(limits= c(-0.6, 9)) +
+  scale_x_continuous(limits= c(-0.5, 2.2)) +
+  ylab("Frequency") +
+  xlab("d prime") +
+  ggtitle("Distribution of d'\n Far Only") + theme(plot.title = element_text(hjust = 0.5, color ="#330066")) +
+  geom_text(aes(mean(d. ,na.rm = T),-0.5,label = "mean", hjust = -0.15))
+p3
+
+df_wide1$hr_ <- df_wide1[,19] / (df_wide1[,22] + df_wide1[,19]) # add back if want to count guess as missed + df_wide1[,29])
+df_wide1$FA.r_near <- df_wide1[,14] / (df_wide1[,14] + df_wide1[,7]) # add back if want to count guess + df_wide1[,28] +df_wide1[,27])
+df_wide1$near_dPrime <- qnorm(df_wide1[,35]) - qnorm(df_wide1[,36])
+
+p4 <- ggplot(df_wide1, aes(x=near_dPrime)) +
+  geom_histogram(binwidth=.23, aes(fill=..x..)) +
+  geom_vline(aes(xintercept=mean(near_dPrime,na.rm=T)),
+             linetype="dashed",size=.4) +
+  theme_classic() +
+  scale_fill_gradient(name="d prime",low="purple", high = "darkorange", guide = FALSE) +
+  theme(axis.line.x = element_line(color = "black"), 
+        axis.line.y = element_line(color = "black")) +
+  theme(plot.title = element_text(size=36),
+        axis.text = element_text(size=24), 
+        axis.title = element_text(size=32),
+        strip.text.x = element_text(size=16)) +
+  scale_y_continuous(limits= c(-0.6, 9)) +
+  scale_x_continuous(limits= c(-0.5, 2.2)) +
+  ylab("Frequency") +
+  xlab("d prime") +
+  ggtitle("Distribution of d'\n Near") +theme(plot.title = element_text(hjust=0.5, color = "#330066"))+
+  geom_text(aes(mean(near_dPrime ,na.rm = T),-0.5,label = "mean", hjust = -0.15))
+p4
+
+
+
+#making a new dataframe with the subjects we already decided to exclude filtered
+df_newFiltered <- df_wide1[df_wide1$SID %in% c(1:4,7:19, 21, 23:30, 32:35, 37), ]
+#getting rid of 5,6,20, 22 and 31. 
+
+# redoing the plots with the new dataframe
+
+p1 <- ggplot(df_newFiltered, aes(x=d.)) +
+  geom_histogram(binwidth=.23, aes(fill=..x..)) +
+  geom_vline(aes(xintercept=mean(d.,na.rm=T)),
+             linetype="dashed",size=.4) +
+  theme_classic() +
+  scale_fill_gradient(name="d prime",low="purple", high = "darkorange", guide = FALSE) +
+  theme(axis.line.x = element_line(color = "black"), 
+        axis.line.y = element_line(color = "black")) +
+  theme(plot.title = element_text(size=36),
+        axis.text = element_text(size=24), 
+        axis.title = element_text(size=32),
+        strip.text.x = element_text(size=16)) +
+  scale_y_continuous(limits= c(-0.6, 9)) +
+  scale_x_continuous(limits= c(-0.5, 2.2)) +
+  ylab("Frequency") +
+  xlab("d prime") +
+  ggtitle("Distribution of d'\n Far Only and Filtered") + theme(plot.title = element_text(hjust = 0.5, color ="#330066"))+
+  geom_text(aes(mean(d. ,na.rm = T),-0.5,label = "mean", hjust = -0.15))
+p1
+
+#df_wide1$hr_withnear <- df_wide1[,19] / (df_wide1[,22] + df_wide1[,19] + df_wide1[,29])
+#df_wide1$FA.r_pessimistic <- df_wide1[,16] / (df_wide1[,16] + df_wide1[,9] + df_wide1[,28] +df_wide1[,27])
+#df_wide1$pesimisitc_dPrime <- qnorm(df_wide1[,35]) - qnorm(df_wide1[,36])
+df_wide1$hr_ <- df_wide1[,19] / (df_wide1[,22] + df_wide1[,19]) # add back if want to count guess as missed + df_wide1[,29])
+df_wide1$FA.r_near <- df_wide1[,14] / (df_wide1[,14] + df_wide1[,7]) # add back if want to count guess + df_wide1[,28] +df_wide1[,27])
+df_wide1$near_dPrime <- qnorm(df_wide1[,35]) - qnorm(df_wide1[,36])
+
+p2 <- ggplot(df_newFiltered, aes(x=near_dPrime)) +
+  geom_histogram(binwidth=.23, aes(fill=..x..)) +
+  geom_vline(aes(xintercept=mean(near_dPrime,na.rm=T)),
+             linetype="dashed",size=.4) +
+  theme_classic() +
+  scale_fill_gradient(name="d prime",low="purple", high = "darkorange", guide = FALSE) +
+  theme(axis.line.x = element_line(color = "black"), 
+        axis.line.y = element_line(color = "black")) +
+  theme(plot.title = element_text(size=36),
+        axis.text = element_text(size=24), 
+        axis.title = element_text(size=32),
+        strip.text.x = element_text(size=16)) +
+  scale_y_continuous(limits= c(-0.6, 9)) +
+  scale_x_continuous(limits= c(-0.5, 2.2)) +
+  ylab("Frequency") +
+  xlab("d prime") +
+  ggtitle("Distribution of d'\n Near only and Filtered") +theme(plot.title = element_text(hjust=0.5, color = "#330066"))+
+  geom_text(aes(mean(near_dPrime ,na.rm = T),-0.5,label = "mean", hjust = -0.15))
+p2
+
+# put all of the plots together into one figure
+grid.arrange(p3,p4, p1,p2, ncol=2,nrow=2)
+
+### Optional: make 1 histogram with these 4 graphs combined but transparent. 
+
+########
+#2. Graph for Confidence by Morph. Both averaged and facited to see if individual subjects are behaving as expected 
+
+#rugby method finding confidence of Far Near and Old. Done this way because csv is actually the pivot table not raw data so it has to be parsed apart again. 
+df_newFiltered$ConfidenceFar <- ((1*df_newFiltered[,3]) + (2*df_newFiltered[,6]) + (4* df_newFiltered[,10]) + (5*df_newFiltered[,13]) + (3*df_newFiltered[,27])) / ( df_newFiltered[,3] + df_newFiltered[,6] +df_newFiltered[,10] +df_newFiltered[,13] + df_newFiltered[,27]) 
+df_newFiltered$ConfidenceNear <- ((1*df_newFiltered[,4]) + (2*df_newFiltered[,7]) + (4* df_newFiltered[,11]) + (5*df_newFiltered[,14]) + (3*df_newFiltered[,28])) / ( df_newFiltered[,4] + df_newFiltered[,7] +df_newFiltered[,11] +df_newFiltered[,14] + df_newFiltered[,28]) 
+df_newFiltered$ConfidenceOld <- ((1*df_newFiltered[,20]) + (2*df_newFiltered[,21]) + (4* df_newFiltered[,17]) + (5*df_newFiltered[,18]) + (3*df_newFiltered[,29])) / ( df_newFiltered[,17] + df_newFiltered[,18] +df_newFiltered[,20] +df_newFiltered[,21] + df_newFiltered[,29]) 
+
+#converted to long format by Morph, then renaming for clarity (yes could have been done by changing column title before gather but this way I learn!)
+df_long <- gather(df_newFiltered, ConfidenceFar, ConfidenceNear, ConfidenceOld, key = "Morph",  value = "Confidence")
+df_long[df_long =="ConfidenceFar"] <- "Far"
+df_long$Morph[df_long$Morph=="ConfidenceNear"] <- "Near"
+df_long$Morph[df_long$Morph=="ConfidenceOld"] <- "Old"
+
+p9 <- ggplot(df_long, aes(x=factor(df_long$Morph), y = df_long$Confidence)) +
+  geom_bar(stat = "summary", fun.y = "mean") +
+  # facet_wrap(~SID) +
+  theme_classic() +
+  theme(axis.line.x= element_line(colour = "black"), axis.line.y = element_line(color= "black")) +
+  theme(plot.title = element_text(size=36), axis.text = element_text(size=24), 
+        axis.title = element_text(size=32),
+        strip.text.x = element_text(size=16)) +
+  scale_y_continuous(limits= c(0, 5)) +
+  theme(legend.position="none") +
+  ggtitle("Average Confidence by Morph") +
+  xlab("Morph") +
+  ylab("Average Confidence")
+p9
+
+#KIRK! Need to figure out why this is straight up when you facet it rather than being seperated by morph...
+#Faceted graph for confidence by Morph
+#plot a line between points rather than facet
+
+
+p10 <- ggplot(df_long, aes(x=(df_long$Morph), y = df_long$Confidence, colour = factor(Subject.Number))) +
+  geom_point(stat = "identity") +
+  geom_line() +
+  facet_grid(~Subject.Number) +
+  theme_classic() +
+  theme(axis.line.x= element_line(colour = "black"), axis.line.y = element_line(color= "black")) +
+  theme(plot.title = element_text(size=36), axis.text = element_text(size=24), 
+        axis.title = element_text(size=32),
+        strip.text.x = element_text(size=16)) +
+  scale_y_continuous(limits= c(0.9, 5)) +
+  theme(legend.position="none") +
+  ggtitle("Average Confidence by Morph") +
+  xlab("Morph") +
+  ylab("Average Confidence")
+p10
+
+
+
+##########################################found oldish script on USB
+
+
+
+#finding average confidence for Old morph
+df_newFiltered$averageconfidence_old <- (((df_newFiltered[,20]*1) + (df_newFiltered[,21]*2) + (df_newFiltered[,17]*4)+ (df_newFiltered[,18]*5) +  (df_newFiltered[,29]*3)) / ((df_newFiltered[,20]) + (df_newFiltered[,21]) + (df_newFiltered[,17])+ (df_newFiltered[,18]) +  (df_newFiltered[,29])))
+
+
+#finding average confidence for Near morph
+df_newFiltered$averageconfidence_near <- (((df_newFiltered[,4]*1) + (df_newFiltered[,7]*2) + (df_newFiltered[,11]*4)+ (df_newFiltered[,14]*5) +  (df_newFiltered[,28]*3)) / ((df_newFiltered[,4]) + (df_newFiltered[,7]) + (df_newFiltered[,11])+ (df_newFiltered[,14]) +  (df_newFiltered[,28])))
+
+
+#finding average confidence for far morph
+df_newFiltered$averageconfidence_far <- (((df_newFiltered[,3]*1) + (df_newFiltered[,6]*2) + (df_newFiltered[,10]*4)+ (df_newFiltered[,13]*5) +  (df_newFiltered[,27]*3)) / ((df_newFiltered[,3]) + (df_newFiltered[,6]) + (df_newFiltered[,10])+ (df_newFiltered[,13]) +  (df_newFiltered[,27])))
+
+
+
+p5 <- ggplot(df_newFiltered, aes(x=averageconfidence_old, averageconfidence_near, averageconfidence_far)) +
+  geom_boxplot(aes(fill=..x..)) +
+  theme_classic() +
+  scale_fill_gradient(name="wedkkt",low="blue", high = "darkorange") +
+  theme(axis.line.x = element_line(color = "black"), 
+        axis.line.y = element_line(color = "black")) +
+  theme(plot.title = element_text(size=36),
+        axis.text = element_text(size=24), 
+        axis.title = element_text(size=32),
+        strip.text.x = element_text(size=16)) +
+  ylab("Morph") +
+  xlab("Average Confidence") +
+  ggtitle("confidence for morp") +theme(plot.title = element_text(hjust=0.5, color = "#330066"))
+p5
+
+
+#df_newFiltered$morph <- factor(df_newFiltered$)
+#library(tidyr) #Only needed once per session
+#library(ggplot2)
+df_long <- gather(mayo_accuracy, condition, measurement, correct:NoResponse,factor_key = TRUE )
+#df_long <- subset(df_long, Row.Labels!=1005)
+
+df_long <- subset(df_long, condition!='GrandTotal')
+
+p6 <-   ggplot(df_long, aes(x=condition, y=measurement)) + 
+  geom_violin(aes(mapping=df_long$condition)) + 
+  geom_point(aes(colour=df_long$condition), size= 2,
+             stroke=1.7,
+             position=position_jitter(width=.2,height=0))  +
+  theme_classic() +
+  theme(axis.line.x = element_line(color = "black"), 
+        axis.line.y = element_line(color = "black")) +
+  theme(plot.title = element_text(size=36),
+        axis.text = element_text(size=24), 
+        axis.title = element_text(size=32),
+        strip.text.x = element_text(size=16)) +
+  ylab("Percentage of Trials") +
+  xlab("Face-Scene accuracy") +
+  #scale_y_discrete(breaks=seq(0, 100, 10)) +
+  theme(legend.position="none")
+p6
+
+#### reading in same dataframe as Steph looked at. Other analyses that can be graphed. 
+# between subjects?
+#fixations without blinking
+#count of response numbers for each confidence rating for all 3 morphs. 
+# other variables (exercise, race, etc)
+
+# define some paths
+data_dir = 'C:/Users/kgeier/Google Drive/OlsenLab_cloud/All Experiments/EyeTrackingExperiments/ObjFamETStudy/Kirk Graphs/Clean_forStephCodeTesting' 
+filename =  'StudyIP_FixbyConf.csv' #'StudyFixbyConf37.csv'
+filepath = paste(data_dir, '/', filename, sep = ''); filepath
+
+# read in the data
+df.rawdata = read.csv(filepath)
+
+# accross subjects. Average Cummulative fixations for all 3 reps vs. d-prime
+
+#alligning format of df.raw to merge with d' dataframe
+names(df.rawdata)[names(df.rawdata) == 'Subject.ID'] <- 'Subject.Number'
+df.rawstudy = df.rawdata[df.rawdata$task == 'study',]
+names(df.rawstudy)[names(df.rawstudy) == 'Morph'] <- 'studymorph'
+names(df.rawstudy)[names(df.rawstudy) == 'SubqMorph'] <- 'Morph'
+
+#alligning format of df_long to merge
+df.dprime <- df_long[names(df_long) == c("Subject.Number","Morph", "d.")]
+df.dprime$Morph[df.dprime$Morph == "Far"] <- 3
+df.dprime$Morph[df.dprime$Morph == "Near"] <- 2
+df.dprime$Morph[df.dprime$Morph == "Old"] <- 1
+
+#merge
+df.rawwithdprime <- merge(df.rawstudy, df.dprime, by = c('Subject.Number', "Morph"))
+
+#Removing just trials with 0 fixations. Will later want to remove all the images that had 0 fixations for any of their trials. 
+df.without0s <- df.rawwithdprime[(df.rawwithdprime$FIXATION_COUNT != 0),]
+
+#lmer to use mixed effect model rather than linear model
+library(lme4)
+library(lmerTest)
+library(dplyr)
+
+#summary of fixations #if not working. Restart code. Likely a dplyr issue
+summary.df_eachviewing <- df.without0s %>% group_by(Subject.Number, studyphase) %>%
+  summarise(MeanFixations = mean(FIXATION_COUNT), dPrime = mean(d.))
+
+#mixed effects model for between subjects across 3 repnum. 
+res_lmer <- lmer(MeanFixations ~ dPrime * studyphase + (1|Subject.Number), summary.df_eachviewing)
+summary(res_lmer)
+
+#function to make linear model and R^2
+lm_eqn <- function(dfp){
+  m <- lmer(MeanFixations ~ dPrime  + (1|Subject.Number) + (1|studyphase), data = summary.df_eachviewing); 
+  eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2, 
+                   list(a = format(coef(m)[1], digits = 2), 
+                        b = format(coef(m)[2], digits = 2), 
+                        r2 = format(summary(m)$r.squared, digits = 3)))
+  as.character(as.expression(eq));                 
+}
+
+plotA <- ggplot(summary.df_eachviewing, aes(x=dPrime, y=MeanFixations, colour = studyphase)) +
+  #geom_errorbar(width=0, aes(ymin=FIXATION_COUNT-ci, ymax=FIXATION_COUNT+ci), colour="red",position=pd, size=1.5) +
+  # geom_errorbar(width=0, aes(ymin=FIXATION_COUNT-ci, ymax=FIXATION_COUNT+ci), data=d_sum, position=pd, size=1.5) +
+  geom_point(size=3) + 
+  scale_color_brewer(palette='Blues') +
+  geom_smooth(method='lmer',formula=y~x + (1|Subject.Number) + (1|studyphase), data = summary.df_eachviewing) #+
+#geom_text(x = 0.4, y = 8, label = lm_eqn(dfp), parse = TRUE)
+
+plotA
+
+#summary of fixations averaged accross repnum this time.
+summary.df_average <- df.without0s %>% group_by(image_filename, Subject.Number) %>%
+  summarise(MeanFixations = mean(FIXATION_COUNT), dPrime = mean(d.))
+
+#mixed effects model for between subjects across 3 repnum. 
+res_lmerB <- lmer(dPrime ~ MeanFixations + (1|Subject.Number), summary.df_average)
+summary(res_lmerB)
+
+
+#function with df_average
+lm_eqn <- function(dfp){
+  m <- lm(MeanFixations ~ dPrime, summary.df_average); 
+  eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2, 
+                   list(a = format(coef(m)[1], digits = 2), 
+                        b = format(coef(m)[2], digits = 2), 
+                        r2 = format(summary(m)$r.squared, digits = 3)))
+  as.character(as.expression(eq));                 
+}
+plotB <- ggplot(summary.df_average, aes(x=dPrime, y=MeanFixations)) +
+  #geom_errorbar(width=0, aes(ymin=FIXATION_COUNT-ci, ymax=FIXATION_COUNT+ci), colour="red",position=pd, size=1.5) +
+  # geom_errorbar(width=0, aes(ymin=FIXATION_COUNT-ci, ymax=FIXATION_COUNT+ci), data=d_sum, position=pd, size=1.5) +
+  geom_point(size=3) + 
+  scale_color_brewer(palette='Blues') +
+  geom_smooth(method='lm',formula=y~x, se = TRUE)+
+  geom_text(x = 0.4, y = 8, label = lm_eqn(dfp), parse = TRUE)
+
+plotB
+
+#load in plotly for interactive graphs
+library(plotly)
+ggplotly(plotA)
+
+
+
+normDataWithin <- function(data=NULL, idvar, measurevar, betweenvars=NULL,
+                           na.rm=FALSE, .drop=TRUE) {
+  library(plyr)
+  
+  # Measure var on left, idvar + between vars on right of formula.
+  data.subjMean <- ddply(data, c(idvar, betweenvars), .drop=.drop,
+                         .fun = function(xx, col, na.rm) {
+                           c(subjMean = mean(xx[,col], na.rm=na.rm))
+                         },
+                         measurevar,
+                         na.rm
+  )
+  
+  # Put the subject means with original data
+  data <- merge(data, data.subjMean)
+  
+  # Get the normalized data in a new column
+  measureNormedVar <- paste(measurevar, "_norm", sep="")
+  data[,measureNormedVar] <- data[,measurevar] - data[,"subjMean"] +
+    mean(data[,measurevar], na.rm=na.rm)
+  
+  # Remove this subject mean column
+  data$subjMean <- NULL
+  
+  return(data)
+}
