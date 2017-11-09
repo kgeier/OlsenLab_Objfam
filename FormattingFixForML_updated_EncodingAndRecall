@@ -1,0 +1,195 @@
+#Load Packages
+library("broom", lib.loc="~/R/R-3.3.1/library")
+library("tidyr", lib.loc="~/R/R-3.3.1/library")
+library("ggplot2", lib.loc="~/R/R-3.3.1/library")
+library("gridExtra", lib.loc="~/R/R-3.3.1/library")
+library("dplyr", lib.loc="~/R/R-3.3.1/library")
+library("tidyr", lib.loc="~/R/R-3.3.2/library")
+library("plotly", lib.loc="~/R/R-3.3.2/library")
+library(plyr)
+library(data.table)
+library(reshape2)
+library(readr)
+library(jpeg)
+
+#set this to how many subjects you want to start from####
+#fun <- function(){
+  x <- readline("What is the subject number for the lowest subject in the range you're working on?")  
+  x <- as.numeric(unlist(strsplit(x, ",")))
+  sdif <- (x -1)
+#  return(sdif)
+#}
+#fun()
+
+#fun2 <- function(){
+  y <- readline("How many subjects will you be working on?")  
+  y <- as.numeric(unlist(strsplit(y, ",")))
+#  return(list(y))
+#}
+#fun2()
+
+#Some vestigal bits of code bc changed purpose halfway through when talking to Pradeep. 
+  
+#Loading Sample data####
+#note, 9a and 9b were combined in advance to this. 9a block 11 crashed part way through. 
+#part of this loop subsets to only include -1 in test confidence column. The purpose of this is some glitchy trials appear in the study period with only 1 sample from a test image which comes up as a new image but it's fake). 
+
+mylistnew <- list()
+for (i in 1:y){
+  i = i + sdif #this is to adjust what subject you want to import
+  data_dir = 'C:/Users/kgeier/Google Drive/OlsenLab_cloud/All Experiments/EyeTracking/ObjFamETStudy/MACHINE_LEARNING_codeForPradeep/SampleReportsAll' 
+  filename =  i
+  fileextension = ".csv"
+  filename = paste0(filename, fileextension)
+  filepath = paste(data_dir, '/', filename, sep = ''); filepath
+  
+  tosubset <- fread(filepath)
+
+  newdf <- subset(tosubset, subset = tosubset$test_confidence == -1)
+  
+  #getting rid of "Trial: " so trial number can be numeric (mainly to match the df.merged_wdp)
+  newdf$TRIAL_LABEL <- gsub("Trial: ", "", newdf$TRIAL_LABEL)
+  newdf$TRIAL_LABEL <- as.numeric(newdf$TRIAL_LABEL)
+  i = i -sdif #(part 2 to not have a list 9 items long for subj 7-9)
+  mylistnew[[i]] <- newdf
+  }
+
+  #Loading image files to save in same folder as csv. ####
+img1 <- readJPEG()
+  
+#Load data 2####
+#Loading in data from other script (Objfam_qualitychecks_accuracy_betweenSubj_april11) If it's still named that. 
+df.merged_wdp <- fread('C:/Users/kgeier/Google Drive/OlsenLab_cloud/All Experiments/EyeTracking/ObjFamETStudy/MACHINE_LEARNING_codeForPradeep/dp_and_subqAcc.csv')
+
+# #1.5 Fixing Studyphase/repnum#### 
+# #selecting only study 
+# df.merged_wdp <- ifelse(df.merged_wdp)
+# 
+# df.merged_wdp <- subset(df.merged_wdp, subset = df.merged_wdp$task == 'study')
+# df.merged_wdp$repnum <- with(df.merged_wdp, ave(RECORDING_SESSION_LABEL, RECORDING_SESSION_LABEL, image_filename, FUN = seq_along))
+# 
+# #does repnum equal studyphase for the subjects that had it?
+# df.merged_wdp$
+# 
+# df.merged_wdp$errorcheck <- ifelse(df.merged_wdp$studyphase==df.merged_wdp$repnum, "good", "maybeerror")
+# 
+
+
+#2. Label each row as hit/miss/FA/CR and dprime
+#practice not in a loop
+#making a vector of relevant columns I want from df.merged_wdp
+df.merged_wdp$imgname <- substr(df.merged_wdp$image_filename, 1,7)
+df.merged_wdp$TRIAL_LABEL <- gsub("Trial: ", "", df.merged_wdp$TRIAL_LABEL)
+df.merged_wdp$TRIAL_LABEL <- as.numeric(df.merged_wdp$TRIAL_LABEL)
+df.sorted <- df.merged_wdp[order(SID, imgname, TRIAL_LABEL),]
+df.sorted <- subset(df.sorted, subset = df.sorted$task == 'study')
+
+df.sorted$repnum <- rep(1:3)
+
+df.sorted$errorcheck <- ifelse(df.sorted$studyphase==df.sorted$repnum, "good", ifelse(df.sorted$studyphase == ".", "SPis.", "maybeerror"))
+RelCol <- c("SID", "RECORDING_SESSION_LABEL", "X__Reaction_Time__1", "block", "imgname", "repnum", "errorcheck", "oldnearorfar", "test_confidence.x", "TRIAL_LABEL", "SubsequentAccuracy", "SubsequentMorph", "test_confidence.y", "dprime_nearonly_noguess", "dprime_faronly_noguess")
+
+#Loop to merge d' and hit/miss (and many other rows)
+mylist2 <- list(seq(1:y))
+j = 1 
+for (j in 1:y) {
+  mylist2[[j]] <- merge(mylistnew[[j]], df.sorted[ , RelCol, with = F], by = c('RECORDING_SESSION_LABEL', 'TRIAL_LABEL'), all = F)
+} 
+
+#2.5. set it to show only the used eye's location
+#in loop for all subj
+mylist3 <- list(seq(1:y)) 
+k = 1
+for (k in 1:y) {
+  #Setting list number to df named visualizermerged
+  mylist2[[k]] ->  visualizerMerged
+  #Doing ifelse statement to combine left and right based on "eye used' column
+  visualizerMerged$eye_gaze_X <- ifelse(visualizerMerged$EYE_TRACKED == 'Right', visualizerMerged$RIGHT_GAZE_X, visualizerMerged$LEFT_GAZE_X)
+  visualizerMerged$eye_gaze_Y <- ifelse(visualizerMerged$EYE_TRACKED == 'Right', visualizerMerged$RIGHT_GAZE_Y, visualizerMerged$LEFT_GAZE_Y)
+  visualizerMerged$eye_in_blink <- ifelse(visualizerMerged$EYE_TRACKED == 'Right', visualizerMerged$RIGHT_IN_BLINK, visualizerMerged$LEFT_IN_BLINK)
+
+  visualizerMerged -> mylist3[[k]] 
+}
+
+#Final Check to see if anything went wrong with the repnum
+check.list <- list(seq(1:y))
+p = 1 
+for (p in 1:y) {
+  mylist3[[p]] -> df.tc
+  df.er <- subset(df.tc, subset = df.tc$errorcheck != "good")
+  check.list[[p]] <- df.er
+} 
+
+repcheckall <- do.call("rbind", check.list)
+
+
+#3. Loop to save with everything in its own folder by trial...
+
+#Encoding####
+#saving individual trial to it's own folder.
+for (m in 1:y){
+  mylist3[[m]] -> alltrials
+  for (n in 1:length(unique(alltrials$TRIAL_LABEL))) {
+    trial1 <- subset(alltrials, subset = alltrials$TRIAL_LABEL == n)
+    s1 <- trial1[1, 'SID']
+    i1 <- trial1[1,"imgname"]
+    r1 <- trial1[1, "repnum"]
+    
+    mainDir <- ('C:/Users/kgeier/Google Drive/OlsenLab_cloud/All Experiments/EyeTracking/ObjFamETStudy/MACHINE_LEARNING_codeForPradeep/OutputFolder')
+    subDir0 <- "Encoding"
+    subDira <- paste0("Subject_", s1)
+    subDird <- paste0("image_", i1)
+    subDird2 <- paste0("repnum_", r1)
+    
+    
+    #Slowly building directory structure 
+    path <- file.path(mainDir, subDir0)
+    dir.create(path, showWarnings = F)
+    path <- file.path(path, subDira)
+    dir.create(path, showWarnings = F)
+    path <- file.path(path, subDird)
+    dir.create(path, showWarnings = F)
+    path <- file.path(path, subDird2)
+    dir.create(path, showWarnings = F)
+
+    #selecting only the few columns Pradeep wants for Machine learning
+   OneTrial <- trial1[, c("eye_gaze_X", "eye_gaze_Y", "eye_in_blink")]
+    
+    
+    pathfinal <- file.path(mainDir,subDir0,subDira,subDird,subDird2)
+    write.csv(x=OneTrial, file= paste0(pathfinal,"/","samplereport.csv"), quote = F, sep="\t", row.names = FALSE)
+    
+  }
+}
+
+#Recall####
+
+#saving individual trial to it's own folder.
+for (m in 1:y){
+  mylist3[[m]] -> alltrials
+  for (n in 1:length(unique(alltrials$TRIAL_LABEL))) {
+    trial1 <- subset(alltrials, subset = alltrials$TRIAL_LABEL == n)
+    s1 <- trial1[1, 'SID']
+    i1 <- trial1[1,"imgname"]
+    sa1 <- trial1[1,"SubsequentAccuracy"]
+    
+    mainDir <- ('C:/Users/kgeier/Google Drive/OlsenLab_cloud/All Experiments/EyeTracking/ObjFamETStudy/MACHINE_LEARNING_codeForPradeep/OutputFolder')
+    subDir0 <- "Recall"
+    subDira <- paste0("Subject_", s1)
+    subDird <- paste0("image_", i1)
+    
+    #Slowly building directory structure 
+    path <- file.path(mainDir, subDir0)
+    dir.create(path, showWarnings = F)
+    path <- file.path(path, subDira)
+    dir.create(path, showWarnings = F)
+    path <- file.path(path, subDird)
+    dir.create(path, showWarnings = F)
+    
+    
+    pathfinal <- file.path(mainDir,subDir0,subDira,subDird)
+    write.table(x=sa1, file= paste0(pathfinal,"/","subsequentaccuracy.txt"), quote = F, col.names = F, row.names = F, sep="\t")
+    
+  }
+}
+
