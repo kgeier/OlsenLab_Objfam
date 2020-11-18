@@ -24,11 +24,6 @@ theme_set(theme_bw(base_size = 18))
 # define some paths: removed
 
 
-
-
-
-
-
 #part 1 - main features: fixation count and sampling variability 
 
 # read in the data
@@ -224,15 +219,6 @@ d_sum2$subimg = paste0(d_sum2$Subject.ID, d_sum2$image_filename)
 unique(d_sum2$subimg)
 
 
-
-
-
-
-
-
-
-
-
 #part 2 - meta features: eye-movement repetition effect 1-3
 
 # read in the data
@@ -380,14 +366,6 @@ d_sum4.violin$MagRep <- d_sum4.violin$FixCountDiff * -1
 #check duplicates
 d_sum3$subimg = paste0(d_sum3$Subject.ID, d_sum3$image_filename)
 unique(d_sum3$subimg)
-
-
-
-
-
-
-
-
 
 
 #part 3 - meta features: eye-movement repetition effect 1-2
@@ -550,13 +528,6 @@ d_sum4.violin$MagRep <- d_sum4.violin$FixCountDiff * -1
 #check duplicates
 d_sum4$subimg = paste0(d_sum4$Subject.ID, d_sum4$image_filename)
 unique(d_sum4$subimg)
-
-
-
-
-
-
-
 
 
 #part 4 - repetition effect overall: data file for stats and visualization
