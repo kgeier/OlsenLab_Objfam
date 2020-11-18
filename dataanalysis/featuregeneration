@@ -1,0 +1,652 @@
+#Load Packages
+library("broom")
+library("tidyr")
+library("ggplot2")
+library("gridExtra")
+library("plotly")
+library(plyr)
+library("dplyr")
+library(data.table)
+library(reshape2)
+library(readr)
+library(jpeg)
+
+
+########################################################################################################################################
+
+
+###Mainfeatures####
+
+
+#This is from Pradeep_Dec_nonMetatesting3.R file. What'new: 
+##saccades info is not included (i.e.no filters)
+##excluded participants are all filtered out (FOR SURE)
+
+
+sdif = 0
+y = 37
+
+
+#Loading Sample data####
+#note, 9a and 9b were combined in advance to this. 9a block 11 crashed part way through. 
+#part of this loop subsets to only include -1 in test confidence column. The purpose of this is some glitchy trials appear in the study period with only 1 sample from a test image which comes up as a new image but it's fake). 
+
+mylistfix <- list()
+mylistsac <- list()
+for (i in 1:y){
+  
+  i = i + sdif #this is to adjust what subject you want to import
+  data_dir = 'removed' 
+  filename =  i
+  fileextension = ".csv"
+  filename = paste0(filename, fileextension)
+  filepath = paste(data_dir, '/', filename, sep = ''); filepath
+  
+  tosubsetFix <- fread(filepath)
+  
+  data_dir = 'removed' 
+  filename =  i
+  fileextension = ".csv"
+  filename = paste0(filename, fileextension)
+  filepath = paste(data_dir, '/', filename, sep = ''); filepath
+  
+  tosubsetSac <- fread(filepath)
+  
+  #getting rid of "Trial: " so trial number can be numeric (mainly to match the df.merged_wdp)
+  tosubsetFix$TRIAL_LABEL <- gsub("Trial: ", "", tosubsetFix$TRIAL_LABEL)
+  tosubsetFix$TRIAL_LABEL <- as.numeric(as.character(tosubsetFix$TRIAL_LABEL))
+  
+  #Selecting only desired columns
+  tosubsetFix <- tosubsetFix[,c( "RECORDING_SESSION_LABEL", "TRIAL_LABEL",             "CURRENT_FIX_BLINK_AROUND","CURRENT_FIX_DURATION",   
+                                 "CURRENT_FIX_END",         "CURRENT_FIX_INDEX",       "CURRENT_FIX_MSG_TEXT_1",  "CURRENT_FIX_PUPIL",      
+                                 "CURRENT_FIX_RUN_INDEX",   "CURRENT_FIX_START",       "CURRENT_FIX_X",           "CURRENT_FIX_Y",          
+                                 "IP_END_TIME",             "IP_LABEL",                "IP_START_TIME",           "TRIAL_FIXATION_TOTAL",   
+                                 "Response",                "__Reaction_Time__1",      "block",                   "image_filename",         
+                                 "studyphase")]
+  
+  i = i -sdif #(part 2 to not have a list 9 items long for subj 7-9)
+  
+  mylistfix[[i]] <- tosubsetFix
+  #getting rid of "Trial: " so trial number can be numeric (mainly to match the df.merged_wdp)
+  tosubsetSac$TRIAL_LABEL <- gsub("Trial: ", "", tosubsetSac$TRIAL_LABEL)
+  tosubsetSac$TRIAL_LABEL <- as.numeric(as.character(tosubsetSac$TRIAL_LABEL))
+  
+  #Selecting only desired columns
+  tosubsetSac <- tosubsetSac[,c("RECORDING_SESSION_LABEL",   "TRIAL_LABEL",               "CURRENT_SAC_AMPLITUDE",     "CURRENT_SAC_ANGLE",        
+                                "CURRENT_SAC_AVG_VELOCITY",  "CURRENT_SAC_CONTAINS_BLINK","CURRENT_SAC_DIRECTION",     "CURRENT_SAC_DURATION",     
+                                "CURRENT_SAC_END_TIME",      "CURRENT_SAC_END_X",         "CURRENT_SAC_END_Y",         "CURRENT_SAC_INDEX",        
+                                "CURRENT_SAC_MSG_TEXT_1",    "CURRENT_SAC_MSG_TIME_1",    "CURRENT_SAC_PEAK_VELOCITY", "CURRENT_SAC_START_TIME",   
+                                "CURRENT_SAC_START_X",       "CURRENT_SAC_START_Y",       "EYE_USED",                  "IP_END_TIME",              
+                                "IP_START_TIME",             "Response",                  "__Reaction_Time__1",        "block",                    
+                                "image_filename",            "studyphase")]
+  
+  i = i -sdif #(part 2 to not have a list 9 items long for subj 7-9)
+  mylistsac[[i]] <- tosubsetSac
+  
+}
+
+#Load data 2####
+#Loading in data from other script (Objfam_qualitychecks_accuracy_betweenSubj_april11) If it's still named that. 
+df.merged_wdp <- fread('removed')
+
+
+#2. Label each row as hit/miss/FA/CR and dprime
+#making a vector of relevant columns I want from df.merged_wdp
+df.merged_wdp$imgname <- substr(df.merged_wdp$image_filename, 1,7)
+df.merged_wdp$TRIAL_LABEL <- gsub("Trial: ", "", df.merged_wdp$TRIAL_LABEL)
+df.merged_wdp$TRIAL_LABEL <- as.numeric(as.character(df.merged_wdp$TRIAL_LABEL))
+df.sorted <- df.merged_wdp[order(SID, imgname, TRIAL_LABEL),]
+df.sorted <- subset(df.sorted, subset = df.sorted$task == 'study')
+df.sorted$Sample_ID <- paste0("SID_", df.sorted$SID, "_IID_", df.sorted$imgname)
+df.sorted$Accuracy <- ifelse(df.sorted$SubsequentAccuracy == "Hit" | df.sorted$SubsequentAccuracy == "CorrectRejection", "Correct",
+                             ifelse(df.sorted$SubsequentAccuracy == "Miss" | df.sorted$SubsequentAccuracy == "FalseAlarm", "Incorrect",
+                                    ifelse(df.sorted$SubsequentAccuracy == "NoResponse", "NoResponse", ".")))
+RelCol <- c("Sample_ID","SID", "RECORDING_SESSION_LABEL", "X__Reaction_Time__1", "block", "imgname", "studyphase",  "oldnearorfar", "test_confidence.x", "TRIAL_LABEL", "SubsequentAccuracy", "SubsequentMorph", "test_confidence.y", "dprime_nearonly_noguess", "dprime_faronly_noguess", "Accuracy")
+
+
+#Loop to merge accuracy and computing new features 
+mylist2 <- list(seq(1:y))
+j = 1 
+for (j in 1:y) {
+  tempf <- merge(mylistfix[[j]], df.sorted[ , RelCol, with = F], by = c('RECORDING_SESSION_LABEL', 'TRIAL_LABEL'), all = F)
+  tempf$Sample_ID <- paste0(tempf$Sample_ID, "_RepID_", tempf$studyphase.x)
+  
+  #Removing first fixation as it is cutoff where fixation cross disappears. #NOT DONE first round of analysis. Added May 2018
+  tempf <- subset(tempf, subset = tempf$CURRENT_FIX_INDEX != 1) #removing 1st fix
+  tempf$CURRENT_FIX_INDEX <- (tempf$CURRENT_FIX_INDEX - 1) #subtracting one so fixation 2 now becomes fixation 1
+  
+  #Getting first fixation duration from duration of first CURRENT_FIX_DURATION
+  woshidalong <- subset(tempf, subset = tempf$CURRENT_FIX_INDEX == 1)
+  #weirdly sometimes Index starts again mid trial so removing to only have first index 1 rows. 
+  woshifeizhu <- woshidalong[!duplicated(woshidalong$Sample_ID),] #apparently a few trials don't have first fixations...
+  #merging first fixation duration with rest of features
+  woshifeizhu$First_Fix_Duration <- woshifeizhu$CURRENT_FIX_DURATION 
+  tashinvren <- woshifeizhu[,c("Sample_ID", "First_Fix_Duration")]
+  tempf <- merge(tempf, tashinvren, by = "Sample_ID", all.x =T, all.y=T)
+  
+  # #Making Another version of X and Y coordinates that is filtered to not include fixations off the object by too far (Object defined as 310to740 X and 200 to 560 Y. This includes a buffer zone)
+  tempf <- subset(tempf, subset= tempf$CURRENT_FIX_X >310 & tempf$CURRENT_FIX_X < 740) #removing individual fixations not trials!
+  tempf <- subset(tempf, subset= tempf$CURRENT_FIX_Y >200 & tempf$CURRENT_FIX_Y < 560)
+  
+  #Summarizing and extracting features
+  temp2f <- ddply(tempf, "Sample_ID", summarise,
+                  Fix_Count = length(Sample_ID),
+                  Fix_Mean_Duration = mean(CURRENT_FIX_DURATION),
+                  Fix_Median_Duration = median(CURRENT_FIX_DURATION),          
+                  Total_Fix_Duration = sum(CURRENT_FIX_DURATION),          
+                  Horizontal_Variability   = sd(CURRENT_FIX_X),
+                  Vertical_Variability   = sd(CURRENT_FIX_Y),
+                  Median_Pupil_Size   = median(CURRENT_FIX_PUPIL),
+                  JRobin_areaSampling = (sd(CURRENT_FIX_X)*sd(CURRENT_FIX_Y)*pi)
+  )
+  
+  ID_Acc <- tempf[,c("Sample_ID", "First_Fix_Duration", "SubsequentAccuracy", "Accuracy", "SubsequentMorph", "test_confidence.y", "dprime_faronly_noguess", "dprime_nearonly_noguess")] #don't include "dprime_faronly_noguess", "dprime_nearonly_noguess" for within-subject analysis 
+  tempmerg1 <- merge(temp2f, ID_Acc, all.y = F, all.x = F)    
+  tempmerg <- unique(tempmerg1)
+  mylist2[[j]] <- tempmerg
+  
+} 
+
+#Combining individual subjects into one file
+alltrials_allsubj <- data.frame()
+for (m in 1:y){
+  mylist2[[m]] -> alltrials
+  
+  
+  alltrials_allsubj <- rbind(alltrials_allsubj, alltrials)
+}
+
+
+#Filtering out subjects with low drpime
+alltrials_allsubj$SID <- substr(alltrials_allsubj$Sample_ID, 5,6) 
+alltrials_allsubj <- subset(alltrials_allsubj, subset = alltrials_allsubj$SID != "3_") # | "04" ) # | 05| 06| 20|  22| 31|  32| 36 )
+alltrials_allsubj <- subset(alltrials_allsubj, subset = alltrials_allsubj$SID != "4_")
+alltrials_allsubj <- subset(alltrials_allsubj, subset = alltrials_allsubj$SID != "5_")
+alltrials_allsubj <- subset(alltrials_allsubj, subset = alltrials_allsubj$SID != "6_")
+alltrials_allsubj <- subset(alltrials_allsubj, subset = alltrials_allsubj$SID != "20")
+alltrials_allsubj <- subset(alltrials_allsubj, subset = alltrials_allsubj$SID != "22")
+alltrials_allsubj <- subset(alltrials_allsubj, subset = alltrials_allsubj$SID != "31")
+alltrials_allsubj <- subset(alltrials_allsubj, subset = alltrials_allsubj$SID != "36")
+
+#adding dprime_nearonly_noguess to comparison
+faronly = as.data.frame(unique(alltrials_allsubj$dprime_nearonly_noguess))
+nearonly = as.data.frame(unique(alltrials_allsubj$dprime_faronly_noguess))
+
+t.test(unique(alltrials_allsubj$dprime_nearonly_noguess), unique(alltrials_allsubj$dprime_faronly_noguess), tail=2, paired=T)
+
+
+
+
+################################################################################################################################
+
+sdif = 0
+y = 37
+
+
+#Loading Sample data####
+#note, 9a and 9b were combined in advance to this. 9a block 11 crashed part way through. 
+#part of this loop subsets to only include -1 in test confidence column. The purpose of this 
+#is some glitchy trials appear in the study period with only 1 sample from a test image which comes 
+#up as a new image but it's fake). 
+
+mylistfix <- list()
+mylistsac <- list()
+for (i in 1:y){
+  i = i + sdif #this is to adjust what subject you want to import
+  data_dir = 'removed' 
+  filename =  i
+  fileextension = ".csv"
+  filename = paste0(filename, fileextension)
+  filepath = paste(data_dir, '/', filename, sep = ''); filepath
+  
+  tosubsetFix <- fread(filepath)
+  
+  data_dir = 'removed' 
+  filename =  i
+  fileextension = ".csv"
+  filename = paste0(filename, fileextension)
+  filepath = paste(data_dir, '/', filename, sep = ''); filepath
+  
+  tosubsetSac <- fread(filepath)
+  
+  #getting rid of "Trial: " so trial number can be numeric (mainly to match the df.merged_wdp)
+  tosubsetFix$TRIAL_LABEL <- gsub("Trial: ", "", tosubsetFix$TRIAL_LABEL)
+  tosubsetFix$TRIAL_LABEL <- as.numeric(as.character(tosubsetFix$TRIAL_LABEL))
+  
+  #Selecting only desired columns
+  tosubsetFix <- tosubsetFix[,c( "RECORDING_SESSION_LABEL", "TRIAL_LABEL",             "CURRENT_FIX_BLINK_AROUND","CURRENT_FIX_DURATION",   
+                                 "CURRENT_FIX_END",         "CURRENT_FIX_INDEX",       "CURRENT_FIX_MSG_TEXT_1",  "CURRENT_FIX_PUPIL",      
+                                 "CURRENT_FIX_RUN_INDEX",   "CURRENT_FIX_START",       "CURRENT_FIX_X",           "CURRENT_FIX_Y",          
+                                 "IP_END_TIME",             "IP_LABEL",                "IP_START_TIME",           "TRIAL_FIXATION_TOTAL",   
+                                 "Response",                "__Reaction_Time__1",      "block",                   "image_filename",         
+                                 "studyphase")]
+  
+  i = i -sdif #(part 2 to not have a list 9 items long for subj 7-9)
+  mylistfix[[i]] <- tosubsetFix
+  
+  #getting rid of "Trial: " so trial number can be numeric (mainly to match the df.merged_wdp)
+  tosubsetSac$TRIAL_LABEL <- gsub("Trial: ", "", tosubsetSac$TRIAL_LABEL)
+  tosubsetSac$TRIAL_LABEL <- as.numeric(as.character(tosubsetSac$TRIAL_LABEL))
+  
+  #Selecting only desired columns
+  tosubsetSac <- tosubsetSac[,c("RECORDING_SESSION_LABEL",   "TRIAL_LABEL",               "CURRENT_SAC_AMPLITUDE",     "CURRENT_SAC_ANGLE",        
+                                "CURRENT_SAC_AVG_VELOCITY",  "CURRENT_SAC_CONTAINS_BLINK","CURRENT_SAC_DIRECTION",     "CURRENT_SAC_DURATION",     
+                                "CURRENT_SAC_END_TIME",      "CURRENT_SAC_END_X",         "CURRENT_SAC_END_Y",         "CURRENT_SAC_INDEX",        
+                                "CURRENT_SAC_MSG_TEXT_1",    "CURRENT_SAC_MSG_TIME_1",    "CURRENT_SAC_PEAK_VELOCITY", "CURRENT_SAC_START_TIME",   
+                                "CURRENT_SAC_START_X",       "CURRENT_SAC_START_Y",       "EYE_USED",                  "IP_END_TIME",              
+                                "IP_START_TIME",             "Response",                  "__Reaction_Time__1",        "block",                    
+                                "image_filename",            "studyphase")]
+  
+  
+  i = i -sdif #(part 2 to not have a list 9 items long for subj 7-9)
+  mylistsac[[i]] <- tosubsetSac
+  
+}
+
+#Load data 2####
+#Loading in data from other script (Objfam_qualitychecks_accuracy_betweenSubj_april11) If it's still named that. 
+df.merged_wdp <- fread('removed')
+
+#2. Label each row as hit/miss/FA/CR and dprime
+#making a vector of relevant columns I want from df.merged_wdp
+df.merged_wdp$imgname <- substr(df.merged_wdp$image_filename, 1,7)
+df.merged_wdp$TRIAL_LABEL <- gsub("Trial: ", "", df.merged_wdp$TRIAL_LABEL)
+df.merged_wdp$TRIAL_LABEL <- as.numeric(as.character(df.merged_wdp$TRIAL_LABEL))
+df.sorted <- df.merged_wdp[order(SID, imgname, TRIAL_LABEL),]
+df.sorted <- subset(df.sorted, subset = df.sorted$task == 'study')
+df.sorted$Sample_ID <- paste0("SID_", df.sorted$SID, "_IID_", df.sorted$imgname)
+df.sorted$Accuracy <- ifelse(df.sorted$SubsequentAccuracy == "Hit" | df.sorted$SubsequentAccuracy == "CorrectRejection", "Correct",
+                             ifelse(df.sorted$SubsequentAccuracy == "Miss" | df.sorted$SubsequentAccuracy == "FalseAlarm", "Incorrect",
+                                    ifelse(df.sorted$SubsequentAccuracy == "NoResponse", "NoResponse", ".")))
+RelCol <- c("Sample_ID","SID", "RECORDING_SESSION_LABEL", "X__Reaction_Time__1", "block", "imgname", "studyphase",  "oldnearorfar", "test_confidence.x", "TRIAL_LABEL", "SubsequentAccuracy", "SubsequentMorph", "test_confidence.y", "dprime_nearonly_noguess", "dprime_faronly_noguess", "Accuracy")
+
+#Loop to merge accuracy and computing new features 
+mylist2 <- list(seq(1:y))
+mylist3 <- list(seq(1:y))
+j = 1 
+for (j in 1:y) {
+  tempf <- merge(mylistfix[[j]], df.sorted[ , RelCol, with = F], by = c('RECORDING_SESSION_LABEL', 'TRIAL_LABEL'), all = F)
+  tempf$Sample_ID <- paste0(tempf$Sample_ID, "_RepID_", tempf$studyphase.x)
+  
+  #Removing first fixation as it is cutoff where fixation cross disappears. #NOT DONE first round of analysis. Added May 2018
+  tempf <- subset(tempf, subset = tempf$CURRENT_FIX_INDEX != 1) #removing 1st fix
+  tempf$CURRENT_FIX_INDEX <- (tempf$CURRENT_FIX_INDEX - 1) #subtracting one so fixation 2 now becomes fixation 1
+  
+  #Getting first fixation duration from duration of first CURRENT_FIX_DURATION
+  woshidalong <- subset(tempf, subset = tempf$CURRENT_FIX_INDEX == 1)
+  #weirdly sometimes Index starts again mid trial so removing to only have first index 1 rows. 
+  woshifeizhu <- woshidalong[!duplicated(woshidalong$Sample_ID),] #apparently a few trials don't have first fixations...
+  #merging first fixation duration with rest of features
+  woshifeizhu$First_Fix_Duration <- woshifeizhu$CURRENT_FIX_DURATION 
+  tashinvren <- woshifeizhu[,c("Sample_ID", "First_Fix_Duration")]
+  tempf <- merge(tempf, tashinvren, by = "Sample_ID", all.x =T, all.y=T)
+  
+  # #Making Another version of X and Y coordinates that is filtered to not include fixations off the object by too far (Object defined as 212to812 X and 84 to 684 Y. This includes a buffer zone)
+  tempf$CURRENT_FIX_X <- as.numeric(as.character(tempf$CURRENT_FIX_X)) 
+  tempf$CURRENT_FIX_Y <- as.numeric(as.character(tempf$CURRENT_FIX_Y))
+  
+  tempf <- subset(tempf, subset= tempf$CURRENT_FIX_X >212 & tempf$CURRENT_FIX_X < 812) #removing individual fixations not trials!
+  tempf <- subset(tempf, subset= tempf$CURRENT_FIX_Y >84 & tempf$CURRENT_FIX_Y < 684)
+  
+  #Summarizing and extracting features
+  temp2f <- ddply(tempf, "Sample_ID", summarise,
+                  Fix_Count = length(Sample_ID),
+                  Fix_Mean_Duration = mean(CURRENT_FIX_DURATION),
+                  Fix_Median_Duration = median(CURRENT_FIX_DURATION),          
+                  Horizontal_Variability   = sd(CURRENT_FIX_X),
+                  Vertical_Variability   = sd(CURRENT_FIX_Y),
+                  Median_Pupil_Size   = median(CURRENT_FIX_PUPIL), 
+                  Median_Pupil_Size   = median(CURRENT_FIX_PUPIL)
+  )
+  
+  
+  ID_Acc <- tempf[,c("Sample_ID", "studyphase.x", "First_Fix_Duration", "SubsequentAccuracy", "Accuracy", "SubsequentMorph", "test_confidence.y")] 
+  tempmerg1 <- merge(temp2f, ID_Acc, all.y = F, all.x = F)    
+  tempmerg3 <- unique(tempmerg1)
+  tempmerg3$ISID <- substr(tempmerg3$Sample_ID,1,nchar(tempmerg3$Sample_ID)-8)
+  
+  #fixing image_filename because it is wrong
+  tempmerg3$SID = substr(tempmerg3$Sample_ID, 5,6)
+  tempmerg3$SID = gsub("_", "", tempmerg3$SID)
+  tempmerg3$SID = as.numeric(as.character(tempmerg3$SID))
+  tempmerg3$newimgname = ifelse(tempmerg3$SID < 9, substr(tempmerg3$ISID, 17, 17), substr(tempmerg3$ISID, 18,18))
+  
+  tempmerg3$newimgname <- ifelse(tempmerg3$SubsequentMorph == "Old", "1", 
+                                 ifelse(tempmerg3$SubsequentMorph == "Near", "2",
+                                        ifelse(tempmerg3$SubsequentMorph == "Far", "3", "YEAHHH")))
+  
+  tempmerg3$newimg = ifelse(tempmerg3$SID < 9, substr(tempmerg3$ISID, 1,16), substr(tempmerg3$ISID, 1,17))
+  
+  tempmerg3$ISID = paste0(tempmerg3$newimg, tempmerg3$newimgname)
+  
+  tempmerg3 = tempmerg3[,!((colnames(tempmerg3) %in% c("newimg", "newimgname", "SID")))] 
+  
+  
+  #Calculating features as change across repetitions
+  tempmerg1to2 <- subset(tempmerg3, studyphase.x != 3)
+  a = tempmerg1to2 %>% count(ISID)
+  a$n = as.numeric(as.character(a$n))
+  a = subset(a, n == 2)
+  tempmerg1to2 = subset(tempmerg1to2, ISID %in% a$ISID)
+  
+  tempmerg1to2Meta <- tempmerg1to2[,c("Sample_ID", "studyphase.x", "ISID", "SubsequentMorph", "test_confidence.y")]
+  
+  tempmerg1to2Meta$FixCountDiff <- ave(tempmerg1to2$Fix_Count, tempmerg1to2$ISID, FUN=function(x) c( NA, diff(x))) #using ave function to subtract fix count from the rep above it based on ImgSubjID
+  tempmerg1to2Meta$Fix_Mean_DurationDiff <- ave(tempmerg1to2$Fix_Mean_Duration, tempmerg1to2$ISID, FUN=function(x) c( NA, diff(x))) 
+  tempmerg1to2Meta$Fix_Median_DurationDiff <- ave(tempmerg1to2$Fix_Median_Duration, tempmerg1to2$ISID, FUN=function(x) c( NA, diff(x))) 
+  tempmerg1to2Meta$Horizontal_VariabilityDiff <- ave(tempmerg1to2$Horizontal_Variability, tempmerg1to2$ISID, FUN=function(x) c( NA, diff(x))) 
+  tempmerg1to2Meta$Vertical_VariabilityDiff <- ave(tempmerg1to2$Vertical_Variability, tempmerg1to2$ISID, FUN=function(x) c( NA, diff(x))) 
+  tempmerg1to2Meta$First_Fix_DurationDiff <- ave(tempmerg1to2$First_Fix_Duration, tempmerg1to2$ISID, FUN=function(x) c( NA, diff(x))) 
+  tempmerg1to2Meta$Median_Pupil_SizeDiff <- ave(tempmerg1to2$Median_Pupil_Size, tempmerg1to2$ISID, FUN=function(x) c( NA, diff(x))) 
+  
+  tempmerg1to2Meta$Accuracy <- tempmerg1to2$Accuracy
+  tempmerg1to2Meta$SubsequentAccuracy <- tempmerg1to2$SubsequentAccuracy
+  
+  
+  tempmerg1to2Meta <- subset(tempmerg1to2Meta, subset = tempmerg1to2Meta$studyphase.x !=1)
+  
+  mylist3[[j]] <- tempmerg1to2Meta
+  
+  
+  #Doing another version that is first to third repitition. Plan is tosimply remove all rep 2. Repeat the code above. And remove rep1 
+  tempmerg1to3 <- subset(tempmerg3, subset = tempmerg3$studyphase.x !=2)
+  b = tempmerg1to3 %>% count(ISID)
+  b$n = as.numeric(as.character(b$n))
+  b = subset(b, n == 2)
+  tempmerg1to3= subset(tempmerg1to3, ISID %in% b$ISID)
+  tempmerg1to3Meta <- tempmerg1to3[,c("Sample_ID", "studyphase.x", "ISID","SubsequentMorph", "test_confidence.y")]
+  
+  
+  tempmerg1to3Meta$FixCountDiff <- ave(tempmerg1to3$Fix_Count, tempmerg1to3$ISID, FUN=function(x) c( NA, diff(x))) #using ave function to subtract fix count from the rep above it based on ImgSubjID
+  tempmerg1to3Meta$Fix_Mean_DurationDiff <- ave(tempmerg1to3$Fix_Mean_Duration, tempmerg1to3$ISID, FUN=function(x) c( NA, diff(x))) 
+  tempmerg1to3Meta$Fix_Median_DurationDiff <- ave(tempmerg1to3$Fix_Median_Duration, tempmerg1to3$ISID, FUN=function(x) c( NA, diff(x))) 
+  tempmerg1to3Meta$Horizontal_VariabilityDiff <- ave(tempmerg1to3$Horizontal_Variability, tempmerg1to3$ISID, FUN=function(x) c( NA, diff(x))) 
+  tempmerg1to3Meta$Vertical_VariabilityDiff <- ave(tempmerg1to3$Vertical_Variability, tempmerg1to3$ISID, FUN=function(x) c( NA, diff(x))) 
+  tempmerg1to3Meta$First_Fix_DurationDiff <- ave(tempmerg1to3$First_Fix_Duration, tempmerg1to3$ISID, FUN=function(x) c( NA, diff(x))) 
+  tempmerg1to3Meta$Median_Pupil_SizeDiff <- ave(tempmerg1to3$Median_Pupil_Size, tempmerg1to3$ISID, FUN=function(x) c( NA, diff(x))) 
+  
+  tempmerg1to3Meta$Accuracy <- tempmerg1to3$Accuracy
+  tempmerg1to3Meta$SubsequentAccuracy <- tempmerg1to3$SubsequentAccuracy
+  
+
+  tempmerg1to3Meta <- subset(tempmerg1to3Meta, subset = tempmerg1to3Meta$studyphase.x !=1)
+  
+  
+  mylist2[[j]] <- tempmerg1to3Meta
+} 
+
+#Combining individual subjects into one file
+Meta1to3_allsubj <- data.frame()
+Meta1to2_allsubj <- data.frame()
+
+for (m in 1:y){
+  mylist2[[m]] -> Meta1to3
+  mylist3[[m]] -> Meta1to2
+  
+  Meta1to3_allsubj <- rbind(Meta1to3_allsubj, Meta1to3)
+  Meta1to2_allsubj <- rbind(Meta1to2_allsubj, Meta1to2)
+}
+
+#Filtering out subjects with low drpime --> diff ID?
+Meta1to3_allsubj$SID <- substr(Meta1to3_allsubj$Sample_ID, 5,6)
+Meta1to3_allsubj <- subset(Meta1to3_allsubj, subset = Meta1to3_allsubj$SID != "3_") 
+Meta1to3_allsubj <- subset(Meta1to3_allsubj, subset = Meta1to3_allsubj$SID != "4_")
+Meta1to3_allsubj <- subset(Meta1to3_allsubj, subset = Meta1to3_allsubj$SID != "5_")
+Meta1to3_allsubj <- subset(Meta1to3_allsubj, subset = Meta1to3_allsubj$SID != "6_")
+Meta1to3_allsubj <- subset(Meta1to3_allsubj, subset = Meta1to3_allsubj$SID != "20")
+Meta1to3_allsubj <- subset(Meta1to3_allsubj, subset = Meta1to3_allsubj$SID != "22")
+Meta1to3_allsubj <- subset(Meta1to3_allsubj, subset = Meta1to3_allsubj$SID != "31")
+Meta1to3_allsubj <- subset(Meta1to3_allsubj, subset = Meta1to3_allsubj$SID != "36")
+
+#Filtering out subjects with low drpime
+Meta1to2_allsubj$SID <- substr(Meta1to2_allsubj$Sample_ID, 5,6) 
+Meta1to2_allsubj <- subset(Meta1to2_allsubj, subset = Meta1to2_allsubj$SID != "3_") 
+Meta1to2_allsubj <- subset(Meta1to2_allsubj, subset = Meta1to2_allsubj$SID != "4_")
+Meta1to2_allsubj <- subset(Meta1to2_allsubj, subset = Meta1to2_allsubj$SID != "5_")
+Meta1to2_allsubj <- subset(Meta1to2_allsubj, subset = Meta1to2_allsubj$SID != "6_")
+Meta1to2_allsubj <- subset(Meta1to2_allsubj, subset = Meta1to2_allsubj$SID != "20")
+Meta1to2_allsubj <- subset(Meta1to2_allsubj, subset = Meta1to2_allsubj$SID != "22")
+Meta1to2_allsubj <- subset(Meta1to2_allsubj, subset = Meta1to2_allsubj$SID != "31")
+Meta1to2_allsubj <- subset(Meta1to2_allsubj, subset = Meta1to2_allsubj$SID != "36")
+
+colnames(Meta1to3_allsubj)
+head(Meta1to3_allsubj)
+
+
+
+
+
+##########################################################################################################################################################
+
+
+
+##Test trials prepared for similarity####
+
+#Creating new files for test trials which were not included before
+tonly = read.csv('removed')
+
+
+
+#getting rid of "Trial: " so trial number can be numeric (mainly to match the df.merged_wdp)
+tonly$TRIAL_LABEL <- gsub("Trial: ", "", tonly$TRIAL_LABEL)
+tonly$TRIAL_LABEL <- as.numeric(as.character(tonly$TRIAL_LABEL))
+
+
+#SD
+tonly = tonly[order(tonly$RECORDING_SESSION_LABEL),]
+
+remove = tonly %>%
+  group_by(RECORDING_SESSION_LABEL, TRIAL_LABEL) %>%
+  filter(CURRENT_FIX_START %in% range(CURRENT_FIX_START)) %>%
+  distinct(RECORDING_SESSION_LABEL, TRIAL_LABEL, image_filename, .keep_all = TRUE)
+
+tonly = data.table(tonly, key=names(tonly));
+remove = data.table(remove, key=names(remove)); 
+tonly = tonly[!remove]
+
+# #Making Another version of X and Y coordinates that is filtered to not include fixations off the object by too far (Object defined as 310to740 X and 200 to 560 Y. This includes a buffer zone)
+tonly <- subset(tonly, subset= tonly$CURRENT_FIX_X >310 & tonly$CURRENT_FIX_X < 740) #removing individual fixations not trials!
+tonly <- subset(tonly, subset= tonly$CURRENT_FIX_Y >200 & tonly$CURRENT_FIX_Y < 560)
+
+
+#filter out bad participants
+tonly = tonly[!tonly$RECORDING_SESSION_LABEL %in% c(3, 4, 5, 6, 20, 22, 31, 36),]
+
+# Convert conf to categorical
+tonly$test_confidence = as.numeric(as.character(tonly$test_confidence))
+tonly$Confbinary = ifelse(tonly$test_confidence < 3, "new",
+                          ifelse(tonly$test_confidence >3, "old", "notgood"))
+tonly$Confbinary = as.character(tonly$Confbinary)
+tonly$oldnearorfar = as.character(tonly$oldnearorfar)
+
+
+#Making new column with names of accuracy type (eg. correct rejection Far)
+tonly$SubsequentAccuracy <- paste0(tonly$oldnearorfar,tonly$Confbinary)
+tonly$SubsequentAccuracy2 <- ifelse(tonly$SubsequentAccuracy == "Oldold", "Hit", 
+                                    ifelse(tonly$SubsequentAccuracy == "Oldnew", "Miss",
+                                           ifelse(tonly$SubsequentAccuracy == "Farold", "FalseAlarm",
+                                                  ifelse(tonly$SubsequentAccuracy == "Farnew", "CorrectRejection",
+                                                         ifelse(tonly$SubsequentAccuracy == "Nearold", "FalseAlarm", 
+                                                                ifelse(tonly$SubsequentAccuracy == "Nearnew", "CorrectRejection", "."))))))
+
+tonly$Accuracy = ifelse(tonly$SubsequentAccuracy == "Oldold", "Correct", 
+                        ifelse(tonly$SubsequentAccuracy == "Oldnew", "Incorrect",
+                               ifelse(tonly$SubsequentAccuracy == "Farold", "Incorrect",
+                                      ifelse(tonly$SubsequentAccuracy == "Farnew", "Correct",
+                                             ifelse(tonly$SubsequentAccuracy == "Nearold", "Incorrect", 
+                                                    ifelse(tonly$SubsequentAccuracy == "Nearnew", "Correct", "AGHHHWAHHDFH"))))))
+
+tonly = tonly[tonly$Accuracy != "AGHHHWAHHDFH"]
+tonly = tonly[,c("RECORDING_SESSION_LABEL", "TRIAL_LABEL", "CURRENT_FIX_X", "CURRENT_FIX_Y", "CURRENT_FIX_DURATION", "CURRENT_FIX_START", "SubsequentAccuracy2", "oldnearorfar", "task", "image_filename", "test_confidence", "Accuracy")]
+colnames(tonly) = c("Subject", "trial", "FixX", "FixY", "FixDur", "Fixtime", "Accuracy", "SubsequentMorph", "RepID" ,"image", "test_confidence", "acc")
+
+tonly$image <- gsub(".jpg", "", tonly$image)
+
+
+
+########################################################################################################################################################
+
+
+#study trials for similarity analysis: copied from above 
+
+sdif = 0
+y = 37
+
+
+#Loading Sample data####
+#note, 9a and 9b were combined in advance to this. 9a block 11 crashed part way through. 
+#part of this loop subsets to only include -1 in test confidence column. The purpose of this is some glitchy trials appear in the study period with only 1 sample from a test image which comes up as a new image but it's fake). 
+
+mylistfix <- list()
+mylistsac <- list()
+for (i in 1:y){
+  
+  i = i + sdif #this is to adjust what subject you want to import
+  data_dir = 'removed' 
+  filename =  i
+  fileextension = ".csv"
+  filename = paste0(filename, fileextension)
+  filepath = paste(data_dir, '/', filename, sep = ''); filepath
+  
+  tosubsetFix <- fread(filepath)
+  
+  data_dir = 'removed' 
+  filename =  i
+  fileextension = ".csv"
+  filename = paste0(filename, fileextension)
+  filepath = paste(data_dir, '/', filename, sep = ''); filepath
+  
+  tosubsetSac <- fread(filepath)
+  
+  #getting rid of "Trial: " so trial number can be numeric (mainly to match the df.merged_wdp)
+  tosubsetFix$TRIAL_LABEL <- gsub("Trial: ", "", tosubsetFix$TRIAL_LABEL)
+  tosubsetFix$TRIAL_LABEL <- as.numeric(as.character(tosubsetFix$TRIAL_LABEL))
+  
+  #Selecting only desired columns
+  tosubsetFix <- tosubsetFix[,c( "RECORDING_SESSION_LABEL", "TRIAL_LABEL",             "CURRENT_FIX_BLINK_AROUND","CURRENT_FIX_DURATION",   
+                                 "CURRENT_FIX_END",         "CURRENT_FIX_INDEX",       "CURRENT_FIX_MSG_TEXT_1",  "CURRENT_FIX_PUPIL",      
+                                 "CURRENT_FIX_RUN_INDEX",   "CURRENT_FIX_START",       "CURRENT_FIX_X",           "CURRENT_FIX_Y",          
+                                 "IP_END_TIME",             "IP_LABEL",                "IP_START_TIME",           "TRIAL_FIXATION_TOTAL",   
+                                 "Response",                "__Reaction_Time__1",      "block",                   "image_filename",         
+                                 "studyphase")]
+  
+  i = i -sdif #(part 2 to not have a list 9 items long for subj 7-9)
+  
+  mylistfix[[i]] <- tosubsetFix
+  #getting rid of "Trial: " so trial number can be numeric (mainly to match the df.merged_wdp)
+  tosubsetSac$TRIAL_LABEL <- gsub("Trial: ", "", tosubsetSac$TRIAL_LABEL)
+  tosubsetSac$TRIAL_LABEL <- as.numeric(as.character(tosubsetSac$TRIAL_LABEL))
+  
+  #Selecting only desired columns
+  tosubsetSac <- tosubsetSac[,c("RECORDING_SESSION_LABEL",   "TRIAL_LABEL",               "CURRENT_SAC_AMPLITUDE",     "CURRENT_SAC_ANGLE",        
+                                "CURRENT_SAC_AVG_VELOCITY",  "CURRENT_SAC_CONTAINS_BLINK","CURRENT_SAC_DIRECTION",     "CURRENT_SAC_DURATION",     
+                                "CURRENT_SAC_END_TIME",      "CURRENT_SAC_END_X",         "CURRENT_SAC_END_Y",         "CURRENT_SAC_INDEX",        
+                                "CURRENT_SAC_MSG_TEXT_1",    "CURRENT_SAC_MSG_TIME_1",    "CURRENT_SAC_PEAK_VELOCITY", "CURRENT_SAC_START_TIME",   
+                                "CURRENT_SAC_START_X",       "CURRENT_SAC_START_Y",       "EYE_USED",                  "IP_END_TIME",              
+                                "IP_START_TIME",             "Response",                  "__Reaction_Time__1",        "block",                    
+                                "image_filename",            "studyphase")]
+  
+  i = i -sdif #(part 2 to not have a list 9 items long for subj 7-9)
+  mylistsac[[i]] <- tosubsetSac
+  
+}
+
+#Load data 2####
+#Loading in data from other script (Objfam_qualitychecks_accuracy_betweenSubj_april11) If it's still named that. 
+df.merged_wdp <- fread('removed')
+
+
+#2. Label each row as hit/miss/FA/CR and dprime
+#making a vector of relevant columns I want from df.merged_wdp
+df.merged_wdp$imgname <- substr(df.merged_wdp$image_filename, 1,7)
+df.merged_wdp$TRIAL_LABEL <- gsub("Trial: ", "", df.merged_wdp$TRIAL_LABEL)
+df.merged_wdp$TRIAL_LABEL <- as.numeric(as.character(df.merged_wdp$TRIAL_LABEL))
+df.sorted <- df.merged_wdp[order(SID, imgname, TRIAL_LABEL),]
+df.sorted <- subset(df.sorted, subset = df.sorted$task == 'study')
+df.sorted$Sample_ID <- paste0("SID_", df.sorted$SID, "_IID_", df.sorted$imgname)
+df.sorted$Accuracy <- ifelse(df.sorted$SubsequentAccuracy == "Hit" | df.sorted$SubsequentAccuracy == "CorrectRejection", "Correct",
+                             ifelse(df.sorted$SubsequentAccuracy == "Miss" | df.sorted$SubsequentAccuracy == "FalseAlarm", "Incorrect",
+                                    ifelse(df.sorted$SubsequentAccuracy == "NoResponse", "NoResponse", ".")))
+RelCol <- c("Sample_ID","SID", "RECORDING_SESSION_LABEL", "X__Reaction_Time__1", "block", "imgname", "studyphase",  "oldnearorfar", "test_confidence.x", "TRIAL_LABEL", "SubsequentAccuracy", "SubsequentMorph", "test_confidence.y", "dprime_nearonly_noguess", "dprime_faronly_noguess", "Accuracy")
+
+
+#Loop to merge accuracy and computing new features 
+mylist2 <- list(seq(1:y))
+j = 1 
+for (j in 1:y) {
+  tempf <- merge(mylistfix[[j]], df.sorted[ , RelCol, with = F], by = c('RECORDING_SESSION_LABEL', 'TRIAL_LABEL'), all = F)
+  tempf$Sample_ID <- paste0(tempf$Sample_ID, "_RepID_", tempf$studyphase.x)
+  
+  #Removing first fixation as it is cutoff where fixation cross disappears. #NOT DONE first round of analysis. Added May 2018
+  tempf <- subset(tempf, subset = tempf$CURRENT_FIX_INDEX != 1) #removing 1st fix
+  tempf$CURRENT_FIX_INDEX <- (tempf$CURRENT_FIX_INDEX - 1) #subtracting one so fixation 2 now becomes fixation 1
+  
+  #Getting first fixation duration from duration of first CURRENT_FIX_DURATION
+  woshidalong <- subset(tempf, subset = tempf$CURRENT_FIX_INDEX == 1)
+  #weirdly sometimes Index starts again mid trial so removing to only have first index 1 rows. 
+  woshifeizhu <- woshidalong[!duplicated(woshidalong$Sample_ID),] #apparently a few trials don't have first fixations...
+  #merging first fixation duration with rest of features
+  woshifeizhu$First_Fix_Duration <- woshifeizhu$CURRENT_FIX_DURATION 
+  tashinvren <- woshifeizhu[,c("Sample_ID", "First_Fix_Duration")]
+  tempf <- merge(tempf, tashinvren, by = "Sample_ID", all.x =T, all.y=T)
+  
+  # #Making Another version of X and Y coordinates that is filtered to not include fixations off the object by too far (Object defined as 310to740 X and 200 to 560 Y. This includes a buffer zone)
+  tempf <- subset(tempf, subset= tempf$CURRENT_FIX_X >310 & tempf$CURRENT_FIX_X < 740) #removing individual fixations not trials!
+  tempf <- subset(tempf, subset= tempf$CURRENT_FIX_Y >200 & tempf$CURRENT_FIX_Y < 560)
+  mylist2[[j]] <- tempf
+  
+}
+
+#Combining individual subjects into one file
+sonly <- data.frame()
+for (m in 1:y){
+  mylist2[[m]] -> strials
+  
+  
+  sonly <- rbind(sonly, strials)
+}
+
+
+#filter out bad participants
+sonly$Subject= substr(sonly$Sample_ID, 5, 6)
+sonly = sonly[!sonly$Subject %in% c("3_", "4_", "5_", "6_", 20, 22, 31, 36),]
+
+#fixing image_filename because it is wrong
+sonly$newimgname = substr(sonly$imgname, 7, 7)
+
+sonly$newimgname <- ifelse(sonly$SubsequentMorph == "Old", "1", 
+                           ifelse(sonly$SubsequentMorph == "Near", "2",
+                                  ifelse(sonly$SubsequentMorph == "Far", "3", "YEAHHH")))
+
+sonly$newimg = substr(sonly$imgname, 1, 6)
+
+sonly$image_filename = paste0(sonly$newimg, sonly$newimgname)
+
+sonly = sonly[,!c("newimg", "newimgname")]
+sonly = subset(sonly, sonly$image != "14_06_NA" & sonly$image != "07_02_YEAHHH")
+
+sonly = sonly[,c("TRIAL_LABEL", "CURRENT_FIX_X", "CURRENT_FIX_Y", "CURRENT_FIX_DURATION", "CURRENT_FIX_START", "SubsequentAccuracy", "SubsequentMorph", "SID", "studyphase.x", "image_filename", "test_confidence.y", "Accuracy")]
+sonly$SID <- gsub("_", "", sonly$SID)
+sonly = sonly[sonly$test_confidence.y != 3 & sonly$SubsequentAccuracy != "NoResponse"]
+
+colnames(sonly) = c("trial", "FixX", "FixY", "FixDur", "Fixtime", "Accuracy", "SubsequentMorph", "Subject", "RepID", "image", "test_confidence", "acc")
+
+tsonly = sonly %>% group_by(Subject, image, RepID) %>% summarise(count = length(Accuracy))
+
+sonly$Subject = as.character(sonly$Subject); tonly$Subject = as.character(tonly$Subject)
+sonly$imgGroup = substr(sonly$image, 1, 5); tonly$imgGroup = substr(tonly$image_filename, 1, 5)
+
+
+
+#get study trials and test trials matched for study-test similarity analysis 
+
+sonly$subimg = paste(sonly$Subject, sonly$image, sep="_"); tonly$subimg = paste(tonly$Subject, tonly$image, sep="_")
+sonly$subimg = as.character(sonly$subimg); tonly$subimg = as.character(tonly$subimg)
+
+a = unique(tonly$subimg); b = unique(sonly$subimg)
+common = intersect(a,b); 
+
+sonly1 = sonly[sonly$subimg %in% common,]
+tonly1 = tonly[tonly$subimg %in% common,]
+
+sim = rbind(sonly1, tonly1, fill = TRUE)
