@@ -65,6 +65,8 @@ df = df[,!(colnames(df) %in% c("newimg", "newimgname"))]
 
 df$imgGroup = substr(df$image, 1,5)
 
+badtrials = read.csv("removed")
+df = df[df$image %in% badtrials$image_filename,]
 
 ##study-test similarity####
 
@@ -148,8 +150,8 @@ df <- dfWithStartTime
 
 df$imgGroup = substr(df$image, 1,5)
 
+df = df[df$image %in% badtrials$image_filename,]
 
-##Study-study similarity####
 
 library(dplyr)
 #Without Centre bias study-study#########
