@@ -148,10 +148,7 @@ JRnew <-
 
 JRnew
 
-filename <- "removed"  
-ggsave(path= data.save, plot = JRnew, filename , width = wid, height = heig, units = "mm"  )
-
-
+#combine FC and SV
 library(cowplot)
 
 FCandSV.combined <- plot_grid(FCnew, JRnew, 
@@ -159,10 +156,6 @@ FCandSV.combined <- plot_grid(FCnew, JRnew,
 ) 
 
 FCandSV.combined
-
-filename <- "removed"  
-ggsave(path= data.save, plot = FCandSV.combined, filename , width = wid*2, height = heig, units = "mm"  )
-
 
 
 #Repeff 1to2 ####
@@ -226,10 +219,6 @@ Rep12new =
 
 Rep12new
 
-filename <- "removed"  
-ggsave(path= data.save, plot = Rep12new, filename , width = wid, height = heig, units = "mm"  )
-
-
 
 #Rep 1-3####
 Re13df = read.csv(filepath4)
@@ -290,11 +279,8 @@ Rep13new =
 
 Rep13new
 
-filename <- "removed"  
-ggsave(path= data.save, plot = Rep13new, filename , width = wid, height = heig, units = "mm"  )
 
-
-
+#combine Rep12 and Rep13
 library(cowplot)
 
 Rep12and13.combined <- plot_grid(Rep12new + theme(#axis.text.x = element_blank(),
@@ -308,10 +294,6 @@ Rep12and13.combined <- plot_grid(Rep12new + theme(#axis.text.x = element_blank()
                                  nrow = 2,labels = c("a)", "b)")
                                  ) 
 Rep12and13.combined 
-
-
-filename <- "removed"   
-ggsave(path= data.save, plot = Rep12and13.combined, filename , width = 2*wid, height = heig, units = "mm"  )
 
 
 
@@ -348,9 +330,6 @@ repall = ggplot(data = d_rp, aes(x = RepComp, y = Fix_Count, fill = repnum)) +
 
 
 repall
-
-filename <- "removed"  
-ggsave(path= data.save, plot = repall, filename , width = wid, height = heig, units = "mm"  )
 
 
 #StudyTestSimilarity  Graph####
@@ -412,9 +391,6 @@ studytestnew =
 
 studytestnew
 
-filename <- "removed"  
-ggsave(path= data.save, plot = studytestnew, filename , width = wid, height = heig, units = "mm"  )
-
 
 #encoding similarity####
 SSSdf = read.csv(filepath6)
@@ -475,11 +451,9 @@ encodingnew =
 
 encodingnew
 
-filename <- "removed"  
-ggsave(path= data.save, plot = encodingnew, filename , width = wid, height = heig, units = "mm"  )
 
 
-#
+#combine SSS and STS
 encodingstudytestnew.combined <- plot_grid(encodingnew + theme(#axis.text.x = element_blank(),
   axis.ticks.x = element_blank(),
   axis.title = element_blank()), 
@@ -490,9 +464,6 @@ encodingstudytestnew.combined <- plot_grid(encodingnew + theme(#axis.text.x = el
 ) 
 encodingstudytestnew.combined 
 
-
-filename <- "removed"  
-ggsave(path= data.save, plot = encodingstudytestnew.combined, filename, width = 2*wid, height = heig, units = "mm"  )
 
 
 
